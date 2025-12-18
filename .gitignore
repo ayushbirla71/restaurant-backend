@@ -6,7 +6,7 @@
 # next.js
 /.next/
 /out/
-
+/restaurant.sqlite
 # production
 /build
 
