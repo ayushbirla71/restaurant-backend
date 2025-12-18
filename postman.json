@@ -1,0 +1,154 @@
+{
+  "info": {
+    "name": "Restaurant Table Booking API",
+    "description": "Admin + Staff APIs with dashboard stats and real-time updates",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Floors",
+      "item": [
+        {
+          "name": "Create Floor",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"floorNumber\": 1,\n  \"name\": \"Ground Floor\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/floors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "floors"]
+            }
+          }
+        },
+        {
+          "name": "Get All Floors",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/floors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "floors"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tables",
+      "item": [
+        {
+          "name": "Create Table",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tableNumber\": \"T1\",\n  \"size\": \"SMALL\",\n  \"floorId\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tables",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tables"]
+            }
+          }
+        },
+        {
+          "name": "Get Tables By Floor",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/tables/floor/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tables", "floor", "1"]
+            }
+          }
+        },
+        {
+          "name": "Update Table Status",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"OCCUPIED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tables/1/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tables", "1", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        {
+          "name": "Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tableId\": 1,\n  \"customerName\": \"Rahul Sharma\",\n  \"mobile\": \"9876543210\",\n  \"email\": \"rahul@gmail.com\",\n  \"peopleCount\": 4,\n  \"bookingTime\": \"2025-01-01T18:30:00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings"]
+            }
+          }
+        },
+        {
+          "name": "Get All Bookings",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings"]
+            }
+          }
+        },
+        {
+          "name": "Cancel Booking",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/1/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "1", "cancel"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "dashboard", "stats"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    }
+  ]
+}
