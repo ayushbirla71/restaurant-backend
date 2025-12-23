@@ -2,6 +2,7 @@ const sequelize = require("../config/database");
 const Floor = require("./Floor");
 const Table = require("./Table");
 const Booking = require("./Booking");
+const WaitingList = require("./WaitingList");
 
 Floor.hasMany(Table, { foreignKey: "floorId" });
 Table.belongsTo(Floor, { foreignKey: "floorId" });
@@ -14,4 +15,4 @@ const initDB = async () => {
   console.log("✅ Database synced");
 };
 
-module.exports = { sequelize, Floor, Table, Booking, initDB };
+module.exports = { sequelize, Floor, Table, Booking, WaitingList, initDB };

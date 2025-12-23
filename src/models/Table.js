@@ -16,9 +16,27 @@ const Table = sequelize.define("Table", {
     type: DataTypes.ENUM("SMALL", "MEDIUM", "LARGE"),
     allowNull: false
   },
+  seats: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 2,
+    comment: "Number of seats at this table"
+  },
   status: {
     type: DataTypes.ENUM("AVAILABLE", "BOOKED", "OCCUPIED"),
     defaultValue: "AVAILABLE"
+  },
+  occupiedSince: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+    comment: "Timestamp when table became BOOKED or OCCUPIED"
+  },
+  availableInMinutes: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: null,
+    comment: "Estimated minutes until table becomes available"
   }
 });
 
