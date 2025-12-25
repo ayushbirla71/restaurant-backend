@@ -212,7 +212,7 @@ exports.getTableBookingDetails = async (req, res) => {
 
       // Return the FIRST booking that is within 30 minutes or already started
       // This is the "active/current" booking
-      if (minutesUntilBooking <= 30) {
+      if (minutesUntilBooking <= 45) {
         return res.json(booking);
       }
     }

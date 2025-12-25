@@ -2,48 +2,145 @@ const { Booking, Table } = require("../models");
 const { Op } = require("sequelize");
 
 // Check for upcoming bookings and send notifications
+// exports.checkUpcomingBookings = async (io) => {
+//   try {
+//     const now = new Date();
+//     const notificationIntervals = [30, 20, 10, 5]; // minutes before booking
+
+//     for (const minutes of notificationIntervals) {
+//       const targetTime = new Date(now.getTime() + minutes * 60000);
+//       const windowStart = new Date(targetTime.getTime() - 60000); // 1 min before
+//       const windowEnd = new Date(targetTime.getTime() + 60000); // 1 min after
+
+//       // Find bookings that should trigger notifications
+//       const bookings = await Booking.findAll({
+//         where: {
+//           status: {
+//             [Op.in]: ["BOOKED", "CONFIRMED"]
+//           },
+//           confirmationStatus: {
+//             [Op.in]: ["PENDING", "CONFIRMED"]
+//           }
+//         },
+//         include: [Table]
+//       });
+
+//       for (const booking of bookings) {
+//         let bookingDateTime;
+
+//         if (booking.bookingDate && booking.bookingTimeSlot) {
+//           // Pre-booking
+//           bookingDateTime = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
+//         } else {
+//           // Walk-in booking
+//           bookingDateTime = new Date(booking.bookingTime);
+//         }
+
+//         // Check if this booking is in the notification window
+//         if (bookingDateTime >= windowStart && bookingDateTime <= windowEnd) {
+//           // Check if notification for this interval was already sent
+//           const notificationsSent = booking.notificationsSent || [];
+//           const notificationKey = `${minutes}min`;
+
+//           if (!notificationsSent.includes(notificationKey)) {
+//             // Send notification
+//             const notification = {
+//               id: `notif-${booking.id}-${minutes}`,
+//               bookingId: booking.id,
+//               tableId: booking.tableId,
+//               tableNumber: booking.Table?.tableNumber,
+//               customerName: booking.customerName,
+//               mobile: booking.mobile,
+//               peopleCount: booking.peopleCount,
+//               bookingTime: bookingDateTime.toISOString(),
+//               minutesBefore: minutes,
+//               confirmationStatus: booking.confirmationStatus,
+//               message: `Table ${booking.Table?.tableNumber} booked for ${booking.customerName} in ${minutes} minutes`,
+//               timestamp: new Date().toISOString()
+//             };
+
+//             // Emit notification via socket
+//             io.emit("upcomingBookingNotification", notification);
+
+//             // Update booking to mark notification as sent
+//             notificationsSent.push(notificationKey);
+//             await booking.update({ notificationsSent });
+
+//             console.log(`📢 Notification sent: Table ${booking.Table?.tableNumber} - ${minutes} min before`);
+//           }
+//         }
+//       }
+//     }
+//   } catch (error) {
+//     console.error("❌ Error checking upcoming bookings:", error.message);
+//   }
+// };
+
+// Check for upcoming bookings and send notifications (TODAY ONLY)
 exports.checkUpcomingBookings = async (io) => {
   try {
     const now = new Date();
     const notificationIntervals = [30, 20, 10, 5]; // minutes before booking
 
+    // Start & end of today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
     for (const minutes of notificationIntervals) {
       const targetTime = new Date(now.getTime() + minutes * 60000);
-      const windowStart = new Date(targetTime.getTime() - 60000); // 1 min before
-      const windowEnd = new Date(targetTime.getTime() + 60000); // 1 min after
+      const windowStart = new Date(targetTime.getTime() - 60000);
+      const windowEnd = new Date(targetTime.getTime() + 60000);
 
-      // Find bookings that should trigger notifications
+      // Fetch only today's relevant bookings
       const bookings = await Booking.findAll({
         where: {
-          status: {
-            [Op.in]: ["BOOKED", "CONFIRMED"]
-          },
-          confirmationStatus: {
-            [Op.in]: ["PENDING", "CONFIRMED"]
-          }
+          status: { [Op.in]: ["BOOKED", "CONFIRMED"] },
+          confirmationStatus: { [Op.in]: ["PENDING", "CONFIRMED"] },
+
+          [Op.or]: [
+            // Pre-bookings (bookingDate exists)
+            {
+              bookingDate: {
+                [Op.between]: [startOfToday, endOfToday],
+              },
+            },
+            // Walk-ins (bookingDate NULL → fallback)
+            {
+              bookingDate: null,
+              bookingTime: {
+                [Op.between]: [startOfToday, endOfToday],
+              },
+            },
+          ],
         },
-        include: [Table]
+        include: [Table],
       });
 
       for (const booking of bookings) {
         let bookingDateTime;
 
+        // Pre-booking
         if (booking.bookingDate && booking.bookingTimeSlot) {
-          // Pre-booking
-          bookingDateTime = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
-        } else {
-          // Walk-in booking
+          bookingDateTime = new Date(
+            `${booking.bookingDate}T${booking.bookingTimeSlot}`
+          );
+        }
+        // Walk-in
+        else if (booking.bookingTime) {
           bookingDateTime = new Date(booking.bookingTime);
+        } else {
+          continue; // Safety skip
         }
 
-        // Check if this booking is in the notification window
+        // Check notification window
         if (bookingDateTime >= windowStart && bookingDateTime <= windowEnd) {
-          // Check if notification for this interval was already sent
           const notificationsSent = booking.notificationsSent || [];
           const notificationKey = `${minutes}min`;
 
           if (!notificationsSent.includes(notificationKey)) {
-            // Send notification
             const notification = {
               id: `notif-${booking.id}-${minutes}`,
               bookingId: booking.id,
@@ -56,17 +153,17 @@ exports.checkUpcomingBookings = async (io) => {
               minutesBefore: minutes,
               confirmationStatus: booking.confirmationStatus,
               message: `Table ${booking.Table?.tableNumber} booked for ${booking.customerName} in ${minutes} minutes`,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
             };
 
-            // Emit notification via socket
             io.emit("upcomingBookingNotification", notification);
 
-            // Update booking to mark notification as sent
             notificationsSent.push(notificationKey);
             await booking.update({ notificationsSent });
 
-            console.log(`📢 Notification sent: Table ${booking.Table?.tableNumber} - ${minutes} min before`);
+            console.log(
+              `📢 Notification sent: Table ${booking.Table?.tableNumber} - ${minutes} min before`
+            );
           }
         }
       }

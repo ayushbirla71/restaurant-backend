@@ -254,30 +254,98 @@ exports.notifyCustomer = async (req, res) => {
 };
 
 // Check for long waiting customers and send notifications
+// exports.checkLongWaitingCustomers = async (io) => {
+//   try {
+//     const now = new Date();
+
+//     // Get all waiting customers
+//     const waitingEntries = await WaitingList.findAll({
+//       where: {
+//         status: { [Op.in]: ["WAITING", "NOTIFIED"], bookingDate : now.toISOString().split('T')[0]  }
+//       },
+//       order: [["createdAt", "ASC"]]
+//     });
+
+//     for (const entry of waitingEntries) {
+//       const waitingMinutes = Math.floor((now - new Date(entry.createdAt)) / (1000 * 60));
+
+//       // Check if customer has been waiting for exactly 10, 20, or 30 minutes
+//       // We use a 1-minute window to avoid missing notifications
+//       const isAtMilestone =
+//         (waitingMinutes >= 10 && waitingMinutes < 11) ||
+//         (waitingMinutes >= 20 && waitingMinutes < 21) ||
+//         (waitingMinutes >= 30 && waitingMinutes < 31);
+
+//       if (isAtMilestone) {
+//         // Send notification to admin
+//         io.emit("longWaitingCustomer", {
+//           id: `waiting-${entry.id}-${waitingMinutes}`,
+//           type: "LONG_WAITING",
+//           waitingListId: entry.id,
+//           customerName: entry.customerName,
+//           mobile: entry.mobile,
+//           peopleCount: entry.peopleCount,
+//           preferredTableSize: entry.preferredTableSize,
+//           waitingMinutes: waitingMinutes,
+//           message: `${entry.customerName} has been waiting for ${waitingMinutes} minutes`,
+//           createdAt: now.toISOString()
+//         });
+
+//         console.log(`⏰ Long waiting notification: ${entry.customerName} - ${waitingMinutes} minutes`);
+//       }
+//     }
+//   } catch (error) {
+//     console.error("❌ Error checking long waiting customers:", error.message);
+//   }
+// };
+
+
+
+// Check for long waiting customers (TODAY ONLY)
 exports.checkLongWaitingCustomers = async (io) => {
   try {
     const now = new Date();
 
-    // Get all waiting customers
+    // Start & end of today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
     const waitingEntries = await WaitingList.findAll({
       where: {
-        status: { [Op.in]: ["WAITING", "NOTIFIED"] }
+        status: { [Op.in]: ["WAITING", "NOTIFIED"] },
+        [Op.or]: [
+          // Case 1: bookingDate exists and is today
+          {
+            bookingDate: {
+              [Op.between]: [startOfToday, endOfToday],
+            },
+          },
+          // Case 2: bookingDate is NULL but created today
+          {
+            bookingDate: null,
+            createdAt: {
+              [Op.between]: [startOfToday, endOfToday],
+            },
+          },
+        ],
       },
-      order: [["createdAt", "ASC"]]
+      order: [["createdAt", "ASC"]],
     });
 
     for (const entry of waitingEntries) {
-      const waitingMinutes = Math.floor((now - new Date(entry.createdAt)) / (1000 * 60));
+      const waitingMinutes = Math.floor(
+        (now - new Date(entry.createdAt)) / (1000 * 60)
+      );
 
-      // Check if customer has been waiting for exactly 10, 20, or 30 minutes
-      // We use a 1-minute window to avoid missing notifications
       const isAtMilestone =
         (waitingMinutes >= 10 && waitingMinutes < 11) ||
         (waitingMinutes >= 20 && waitingMinutes < 21) ||
         (waitingMinutes >= 30 && waitingMinutes < 31);
 
       if (isAtMilestone) {
-        // Send notification to admin
         io.emit("longWaitingCustomer", {
           id: `waiting-${entry.id}-${waitingMinutes}`,
           type: "LONG_WAITING",
@@ -286,12 +354,14 @@ exports.checkLongWaitingCustomers = async (io) => {
           mobile: entry.mobile,
           peopleCount: entry.peopleCount,
           preferredTableSize: entry.preferredTableSize,
-          waitingMinutes: waitingMinutes,
+          waitingMinutes,
           message: `${entry.customerName} has been waiting for ${waitingMinutes} minutes`,
-          createdAt: now.toISOString()
+          createdAt: now.toISOString(),
         });
 
-        console.log(`⏰ Long waiting notification: ${entry.customerName} - ${waitingMinutes} minutes`);
+        console.log(
+          `⏰ Long waiting notification: ${entry.customerName} - ${waitingMinutes} minutes`
+        );
       }
     }
   } catch (error) {

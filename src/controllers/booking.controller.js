@@ -212,51 +212,115 @@ exports.getBookings = async (req, res) => {
 };
 
 // Get upcoming bookings for a specific table (TODAY ONLY - within 24 hours)
+// exports.getUpcomingBookingsForTable = async (req, res) => {
+//   try {
+//     const { tableId } = req.params;
+//     const now = new Date();
+//     const { isTodaysBooking, bookingDate } = req.body;
+
+//     // Calculate today's date range (start and end of today)
+//     const todayStart = new Date();
+//     todayStart.setHours(0, 0, 0, 0);
+
+//     const todayEnd = new Date();
+//     todayEnd.setHours(23, 59, 59, 999);
+
+//     const todayStr = todayStart.toISOString().split('T')[0];
+
+//     const upcomingBookings = await Booking.findAll({
+//       where: {
+//         tableId,
+//         status: {
+//           [Op.in]: ["BOOKED", "CONFIRMED"]
+//         },
+//         [Op.or]: [
+//           // Pre-bookings scheduled for TODAY only
+//           {
+//             bookingType: "PRE_BOOKING",
+//             bookingDate: todayStr,
+//             bookingTime: {
+//               [Op.gte]: now // Only future bookings today
+//             }
+//           },
+//           // Walk-in bookings created today with future time
+//           {
+//             bookingType: "WALK_IN",
+//             bookingTime: {
+//               [Op.gte]: now,
+//               [Op.lte]: todayEnd // Only within today
+//             }
+//           }
+//         ]
+//       },
+//       order: [
+//         ['bookingDate', 'ASC'],
+//         ['bookingTimeSlot', 'ASC'],
+//         ['bookingTime', 'ASC']
+//       ],
+//       limit: 5 // Get next 5 upcoming bookings (today only)
+//     });
+
+//     res.json(upcomingBookings);
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
+// Get upcoming bookings for a specific table (TODAY or selected date)
 exports.getUpcomingBookingsForTable = async (req, res) => {
   try {
     const { tableId } = req.params;
+    const { isTodaysBooking = true, bookingDate } = req.body;
+
     const now = new Date();
+    const bufferTime = new Date(now.getTime() - 60 * 60 * 1000);
 
-    // Calculate today's date range (start and end of today)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
 
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // Determine date range
+    let startDate, endDate;
 
-    const todayStr = todayStart.toISOString().split('T')[0];
+    if (isTodaysBooking) {
+      startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date();
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      if (!bookingDate) {
+        return res.status(400).json({ message: "bookingDate is required" });
+      }
+
+      startDate = new Date(bookingDate);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(bookingDate);
+      endDate.setHours(23, 59, 59, 999);
+    }
 
     const upcomingBookings = await Booking.findAll({
       where: {
         tableId,
         status: {
-          [Op.in]: ["BOOKED", "CONFIRMED"]
+          [Op.in]: ["BOOKED", "CONFIRMED"],
         },
-        [Op.or]: [
-          // Pre-bookings scheduled for TODAY only
-          {
-            bookingType: "PRE_BOOKING",
-            bookingDate: todayStr,
-            bookingTime: {
-              [Op.gte]: now // Only future bookings today
-            }
-          },
-          // Walk-in bookings created today with future time
-          {
-            bookingType: "WALK_IN",
-            bookingTime: {
-              [Op.gte]: now,
-              [Op.lte]: todayEnd // Only within today
-            }
-          }
-        ]
+        bookingDate: {
+          [Op.between]: [
+            startDate.toISOString().split("T")[0],
+            endDate.toISOString().split("T")[0],
+          ],
+        },
+        bookingTime: {
+          [Op.between]: [
+            isTodaysBooking ? bufferTime : startDate,
+            endDate,
+          ],
+        },
       },
       order: [
-        ['bookingDate', 'ASC'],
-        ['bookingTimeSlot', 'ASC'],
-        ['bookingTime', 'ASC']
-      ],
-      limit: 5 // Get next 5 upcoming bookings (today only)
+        ["bookingDate", "ASC"],
+        ["bookingTimeSlot", "ASC"],
+        ["bookingTime", "ASC"],
+      ]
     });
 
     res.json(upcomingBookings);
@@ -264,6 +328,7 @@ exports.getUpcomingBookingsForTable = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 exports.cancelBooking = async (req, res) => {
   const booking = await Booking.findByPk(req.params.id);
@@ -539,77 +604,222 @@ exports.getBookingsByDate = async (req, res) => {
 };
 
 // Sync table statuses based on booking times
+// exports.syncTableStatuses = async (req, res) => {
+//   try {
+//     // Get all active bookings
+//     const bookings = await Booking.findAll({
+//       where: {
+//         status: {
+//           [Op.in]: ["BOOKED", "CONFIRMED"]
+//         }
+//       },
+//       include: Table
+//     });
+
+//     let updatedCount = 0;
+
+//     for (const booking of bookings) {
+//       if (!booking.Table) continue;
+
+//       const isActive = isBookingActive(booking.bookingTime, booking.bookingDate, booking.bookingType);
+
+//       // IMPORTANT: If booking is CONFIRMED by admin, keep table as BOOKED regardless of time
+//       const isConfirmedByAdmin = booking.confirmationStatus === "CONFIRMED";
+
+//       // If booking is active OR confirmed by admin, table should be BOOKED
+//       if ((isActive || isConfirmedByAdmin) && booking.Table.status !== "BOOKED" && booking.Table.status !== "OCCUPIED") {
+//         await Table.update(
+//           {
+//             status: "BOOKED"
+//             // Do NOT set occupiedSince - only when customer actually sits (OCCUPIED)
+//           },
+//           { where: { id: booking.tableId } }
+//         );
+//         updatedCount++;
+
+//         if (req.io) {
+//           req.io.emit("tableStatusUpdated", {
+//             tableId: booking.tableId,
+//             status: "BOOKED"
+//           });
+//         }
+//       }
+
+//       // Check if booking has ended (past the booking end time)
+//       let bookingEndTime;
+//       if (booking.bookingDate && booking.bookingTimeSlot) {
+//         const bookingStart = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
+//         bookingEndTime = new Date(bookingStart.getTime() + (booking.durationMinutes + 30 || 90) * 60000);
+//       } else {
+//         const bookingStart = new Date(booking.bookingTime);
+//         bookingEndTime = new Date(bookingStart.getTime() + (booking.durationMinutes + 30 || 90) * 60000);
+//       }
+
+//       const now = new Date();
+//       const hasEnded = now > bookingEndTime;
+
+//       // Only change to AVAILABLE if booking has actually ENDED (not just inactive)
+//       // AND not confirmed by admin
+//       if (hasEnded && !isConfirmedByAdmin && booking.Table.status === "BOOKED") {
+//         await Table.update(
+//           {
+//             status: "AVAILABLE",
+//             occupiedSince: null, // Clear timestamp
+//             availableInMinutes: null // Clear staff-set availability time
+//           },
+//           { where: { id: booking.tableId } }
+//         );
+//         updatedCount++;
+
+//         if (req.io) {
+//           req.io.emit("tableStatusUpdated", {
+//             tableId: booking.tableId,
+//             status: "AVAILABLE"
+//           });
+//         }
+//       }
+//     }
+
+//     if (req.io) {
+//       req.io.emit("dashboardUpdated");
+//     }
+
+//     res.json({
+//       message: "Table statuses synced successfully",
+//       updatedCount
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
+
 exports.syncTableStatuses = async (req, res) => {
   try {
-    // Get all active bookings
+    const now = new Date();
+    const PRE_HOLD_MINUTES = 45;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+
     const bookings = await Booking.findAll({
       where: {
-        status: {
-          [Op.in]: ["BOOKED", "CONFIRMED"]
-        }
+        status: { [Op.in]: ["BOOKED", "CONFIRMED"] },
+    
+        [Op.or]: [
+          // Pre-bookings (bookingDate exists)
+          {
+            bookingDate: {
+              [Op.between]: [startOfToday, endOfToday]
+            }
+          },
+          // Walk-ins (bookingDate NULL)
+          {
+            bookingDate: null,
+            bookingTime: {
+              [Op.between]: [startOfToday, endOfToday]
+            }
+          }
+        ]
       },
       include: Table
     });
 
-    let updatedCount = 0;
+    // Group bookings by table
+    const tableMap = {};
 
     for (const booking of bookings) {
       if (!booking.Table) continue;
 
-      const isActive = isBookingActive(booking.bookingTime, booking.bookingDate, booking.bookingType);
+      if (!tableMap[booking.tableId]) {
+        tableMap[booking.tableId] = {
+          table: booking.Table,
+          bookings: []
+        };
+      }
+      tableMap[booking.tableId].bookings.push(booking);
+    }
 
-      // IMPORTANT: If booking is CONFIRMED by admin, keep table as BOOKED regardless of time
-      const isConfirmedByAdmin = booking.confirmationStatus === "CONFIRMED";
+    let updatedCount = 0;
 
-      // If booking is active OR confirmed by admin, table should be BOOKED
-      if ((isActive || isConfirmedByAdmin) && booking.Table.status !== "BOOKED" && booking.Table.status !== "OCCUPIED") {
-        await Table.update(
-          {
-            status: "BOOKED"
-            // Do NOT set occupiedSince - only when customer actually sits (OCCUPIED)
-          },
-          { where: { id: booking.tableId } }
-        );
-        updatedCount++;
+    for (const tableId in tableMap) {
+      const { table, bookings } = tableMap[tableId];
 
-        if (req.io) {
-          req.io.emit("tableStatusUpdated", {
-            tableId: booking.tableId,
-            status: "BOOKED"
-          });
+      let hasActiveBooking = false;
+      let nearestUpcomingStart = null;
+
+      for (const booking of bookings) {
+        const isConfirmedByAdmin = booking.confirmationStatus === "CONFIRMED";
+
+        // ---- booking start
+        let startTime;
+        if (booking.bookingDate && booking.bookingTimeSlot) {
+          startTime = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
+        } else {
+          startTime = new Date(booking.bookingTime);
+        }
+
+        // ---- booking end
+        const duration =
+          typeof booking.durationMinutes === "number"
+            ? booking.durationMinutes + 30
+            : 90;
+
+        const endTime = new Date(startTime.getTime() + duration * 60000);
+
+        // ---- ACTIVE booking
+        if ((now >= startTime && now <= endTime)) {
+          hasActiveBooking = true;
+          break;
+        }
+
+        // ---- find nearest upcoming booking
+        if (startTime > now) {
+          if (!nearestUpcomingStart || startTime < nearestUpcomingStart) {
+            nearestUpcomingStart = startTime;
+          }
         }
       }
 
-      // Check if booking has ended (past the booking end time)
-      let bookingEndTime;
-      if (booking.bookingDate && booking.bookingTimeSlot) {
-        const bookingStart = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
-        bookingEndTime = new Date(bookingStart.getTime() + (booking.durationMinutes || 60) * 60000);
-      } else {
-        const bookingStart = new Date(booking.bookingTime);
-        bookingEndTime = new Date(bookingStart.getTime() + (booking.durationMinutes || 60) * 60000);
+      // ---- Decide status
+      let nextStatus = "AVAILABLE";
+
+      if (hasActiveBooking) {
+        nextStatus = "BOOKED";
+      } else if (
+        nearestUpcomingStart &&
+        nearestUpcomingStart <= new Date(now.getTime() + PRE_HOLD_MINUTES * 60000)
+      ) {
+        nextStatus = "BOOKED";
       }
 
-      const now = new Date();
-      const hasEnded = now > bookingEndTime;
-
-      // Only change to AVAILABLE if booking has actually ENDED (not just inactive)
-      // AND not confirmed by admin
-      if (hasEnded && !isConfirmedByAdmin && booking.Table.status === "BOOKED") {
+      if (table.status !== nextStatus && table.status !== "OCCUPIED") {
         await Table.update(
           {
-            status: "AVAILABLE",
-            occupiedSince: null, // Clear timestamp
-            availableInMinutes: null // Clear staff-set availability time
+            status: nextStatus,
+            occupiedSince: nextStatus === "AVAILABLE" ? null : table.occupiedSince,
+            availableInMinutes:
+              nextStatus === "AVAILABLE"
+                ? Math.max(
+                    0,
+                    nearestUpcomingStart
+                      ? Math.floor((nearestUpcomingStart - now) / 60000)
+                      : null
+                  )
+                : null
           },
-          { where: { id: booking.tableId } }
+          { where: { id: tableId } }
         );
+
         updatedCount++;
 
         if (req.io) {
           req.io.emit("tableStatusUpdated", {
-            tableId: booking.tableId,
-            status: "AVAILABLE"
+            tableId,
+            status: nextStatus
           });
         }
       }
@@ -620,13 +830,14 @@ exports.syncTableStatuses = async (req, res) => {
     }
 
     res.json({
-      message: "Table statuses synced successfully",
+      message: "Table statuses synced with 45-minute availability rule",
       updatedCount
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // Override booking - Move existing booking to waiting list and create new booking
 exports.overrideBooking = async (req, res) => {
