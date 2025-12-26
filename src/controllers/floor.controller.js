@@ -10,6 +10,22 @@ exports.createFloor = async (req, res) => {
   res.json(floor);
 };
 
+exports.deleteFloor = async (req, res) => {
+  try {
+    await Floor.destroy({
+      where: { id: req.params.id }
+    });
+
+    // Emit real-time update
+    req.io.emit("floorDeleted", req.params.id);
+    req.io.emit("dashboardUpdated");
+
+    res.json({ message: "Floor deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.getFloors = async (req, res) => {
   res.json(await Floor.findAll());
 };

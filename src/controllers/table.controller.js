@@ -296,3 +296,19 @@ exports.updateTableAvailability = async (req, res) => {
   }
 };
 
+
+exports.deleteTable = async (req, res) => {
+  try {
+    await Table.destroy({
+      where: { id: req.params.id }
+    });
+
+    // Emit real-time update
+    req.io.emit("tableDeleted", req.params.id);
+    req.io.emit("dashboardUpdated");
+
+    res.json({ message: "Table deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
