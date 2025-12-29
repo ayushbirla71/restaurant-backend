@@ -917,5 +917,57 @@ exports.overrideBooking = async (req, res) => {
   }
 };
 
+exports.getBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findByPk(req.params.id);
+    res.json(booking);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updateBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findByPk(req.params.id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    // Update booking fields
+    for (const key in req.body) {
+      if (key === "id") continue;
+      if(key === "bookingTime") continue;
+      if(key === "bookingDate") continue;
+      
+      booking[key] = req.body[key];
+    }
+
+    await booking.save();
+    req.io.emit("bookingUpdated", booking);
+
+    res.json(booking);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.deleteBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findByPk(req.params.id);
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    await booking.destroy();
+    req.io.emit("bookingDeleted", req.params.id);
+
+    res.json({ message: "Booking deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Export helper function for use in other controllers
 exports.checkBookingConflict = checkBookingConflict;
