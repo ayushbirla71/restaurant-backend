@@ -1,5 +1,6 @@
 const { Booking, Table } = require("../models");
 const { Op } = require("sequelize");
+const { sendWhatsAppMessage } = require("../whatsappService/whatsapp-service");
 
 // Helper function to check if booking is active (within 30 min window)
 const isBookingActive = (bookingTime, bookingDate, bookingType) => {
@@ -35,7 +36,9 @@ const calculateEstimatedWaitTime = (table, booking) => {
   const now = new Date();
 
   // If table has occupiedSince timestamp, calculate elapsed time
-  const occupiedSince = table.occupiedSince ? new Date(table.occupiedSince) : now;
+  const occupiedSince = table.occupiedSince
+    ? new Date(table.occupiedSince)
+    : now;
   const elapsedMinutes = Math.floor((now - occupiedSince) / (1000 * 60));
 
   // Get booking duration (default 60 minutes if not set)
@@ -51,12 +54,18 @@ const calculateEstimatedWaitTime = (table, booking) => {
     estimatedMinutes: estimatedWaitTime,
     elapsedMinutes: elapsedMinutes,
     totalDuration: bookingDuration,
-    occupiedSince: occupiedSince
+    occupiedSince: occupiedSince,
   };
 };
 
 // Helper function to check for booking conflicts
-const checkBookingConflict = async (tableId, bookingTime, bookingDate, bookingTimeSlot, durationMinutes) => {
+const checkBookingConflict = async (
+  tableId,
+  bookingTime,
+  bookingDate,
+  bookingTimeSlot,
+  durationMinutes
+) => {
   let newBookingStart, newBookingEnd;
 
   if (bookingDate && bookingTimeSlot) {
@@ -66,16 +75,18 @@ const checkBookingConflict = async (tableId, bookingTime, bookingDate, bookingTi
     // Walk-in
     newBookingStart = new Date(bookingTime);
   }
-  newBookingEnd = new Date(newBookingStart.getTime() + (durationMinutes || 60) * 60000);
+  newBookingEnd = new Date(
+    newBookingStart.getTime() + (durationMinutes || 60) * 60000
+  );
 
   // Find all active bookings for this table
   const existingBookings = await Booking.findAll({
     where: {
       tableId,
       status: {
-        [Op.in]: ["BOOKED", "CONFIRMED"]
-      }
-    }
+        [Op.in]: ["BOOKED", "CONFIRMED"],
+      },
+    },
   });
 
   // Check for time conflicts
@@ -83,11 +94,15 @@ const checkBookingConflict = async (tableId, bookingTime, bookingDate, bookingTi
     let existingStart, existingEnd;
 
     if (existing.bookingDate && existing.bookingTimeSlot) {
-      existingStart = new Date(`${existing.bookingDate}T${existing.bookingTimeSlot}`);
+      existingStart = new Date(
+        `${existing.bookingDate}T${existing.bookingTimeSlot}`
+      );
     } else {
       existingStart = new Date(existing.bookingTime);
     }
-    existingEnd = new Date(existingStart.getTime() + (existing.durationMinutes || 60) * 60000);
+    existingEnd = new Date(
+      existingStart.getTime() + (existing.durationMinutes || 60) * 60000
+    );
 
     // Check if times overlap
     if (newBookingStart < existingEnd && newBookingEnd > existingStart) {
@@ -98,6 +113,25 @@ const checkBookingConflict = async (tableId, bookingTime, bookingDate, bookingTi
   return null; // No conflict
 };
 
+function normalizeIndianMobile(mobile) {
+  if (!mobile) return null;
+
+  // Remove spaces, dashes, brackets
+  let phone = mobile.toString().replace(/\D/g, "");
+
+  // Remove leading country code if present
+  if (phone.startsWith("91") && phone.length === 12) {
+    phone = phone.slice(2);
+  }
+
+  // Validate 10-digit mobile
+  if (phone.length !== 10) {
+    return null;
+  }
+
+  return `+91${phone}`;
+}
+
 exports.createBooking = async (req, res) => {
   try {
     let bookingData = { ...req.body };
@@ -106,8 +140,13 @@ exports.createBooking = async (req, res) => {
     // This ensures walk-in bookings have proper date/time tracking
     if (!bookingData.bookingDate || !bookingData.bookingTimeSlot) {
       const bookingDateTime = new Date(bookingData.bookingTime);
-      bookingData.bookingDate = bookingDateTime.toISOString().split('T')[0]; // YYYY-MM-DD
-      bookingData.bookingTimeSlot = `${String(bookingDateTime.getHours()).padStart(2, '0')}:${String(bookingDateTime.getMinutes()).padStart(2, '0')}`; // HH:MM
+      bookingData.bookingDate = bookingDateTime.toISOString().split("T")[0]; // YYYY-MM-DD
+      bookingData.bookingTimeSlot = `${String(
+        bookingDateTime.getHours()
+      ).padStart(2, "0")}:${String(bookingDateTime.getMinutes()).padStart(
+        2,
+        "0"
+      )}`; // HH:MM
     }
 
     // Check for conflicts
@@ -123,11 +162,17 @@ exports.createBooking = async (req, res) => {
       // Calculate when the conflicting booking ends
       let conflictEndTime;
       if (conflict.bookingDate && conflict.bookingTimeSlot) {
-        const conflictStart = new Date(`${conflict.bookingDate}T${conflict.bookingTimeSlot}`);
-        conflictEndTime = new Date(conflictStart.getTime() + (conflict.durationMinutes || 60) * 60000);
+        const conflictStart = new Date(
+          `${conflict.bookingDate}T${conflict.bookingTimeSlot}`
+        );
+        conflictEndTime = new Date(
+          conflictStart.getTime() + (conflict.durationMinutes || 60) * 60000
+        );
       } else {
         const conflictStart = new Date(conflict.bookingTime);
-        conflictEndTime = new Date(conflictStart.getTime() + (conflict.durationMinutes || 60) * 60000);
+        conflictEndTime = new Date(
+          conflictStart.getTime() + (conflict.durationMinutes || 60) * 60000
+        );
       }
 
       // Check if admin explicitly confirmed auto-scheduling
@@ -137,10 +182,17 @@ exports.createBooking = async (req, res) => {
         bookingData.bookingTime = newBookingTime.toISOString();
 
         // Update bookingDate and bookingTimeSlot for the new scheduled time
-        bookingData.bookingDate = newBookingTime.toISOString().split('T')[0];
-        bookingData.bookingTimeSlot = `${String(newBookingTime.getHours()).padStart(2, '0')}:${String(newBookingTime.getMinutes()).padStart(2, '0')}`;
+        bookingData.bookingDate = newBookingTime.toISOString().split("T")[0];
+        bookingData.bookingTimeSlot = `${String(
+          newBookingTime.getHours()
+        ).padStart(2, "0")}:${String(newBookingTime.getMinutes()).padStart(
+          2,
+          "0"
+        )}`;
 
-        console.log(`Admin confirmed auto-scheduling. New time: ${newBookingTime.toISOString()}`);
+        console.log(
+          `Admin confirmed auto-scheduling. New time: ${newBookingTime.toISOString()}`
+        );
       } else {
         // Show conflict to admin for confirmation (both WALK-IN and PRE-BOOKING)
         const table = await Table.findByPk(req.body.tableId);
@@ -155,10 +207,12 @@ exports.createBooking = async (req, res) => {
             bookingDate: conflict.bookingDate,
             bookingTimeSlot: conflict.bookingTimeSlot,
             durationMinutes: conflict.durationMinutes,
-            endTime: conflictEndTime.toISOString()
+            endTime: conflictEndTime.toISOString(),
           },
           estimatedWaitTime: waitTimeInfo,
-          suggestedTime: new Date(conflictEndTime.getTime() + 5 * 60000).toISOString()
+          suggestedTime: new Date(
+            conflictEndTime.getTime() + 5 * 60000
+          ).toISOString(),
         });
       }
     }
@@ -166,7 +220,11 @@ exports.createBooking = async (req, res) => {
     const booking = await Booking.create(bookingData);
 
     // Only set table as BOOKED if booking is active AND table is not already OCCUPIED
-    const shouldBeBooked = isBookingActive(bookingData.bookingTime, bookingData.bookingDate, bookingData.bookingType);
+    const shouldBeBooked = isBookingActive(
+      bookingData.bookingTime,
+      bookingData.bookingDate,
+      bookingData.bookingType
+    );
 
     if (shouldBeBooked) {
       // Get current table status
@@ -177,7 +235,7 @@ exports.createBooking = async (req, res) => {
       if (table && table.status === "AVAILABLE") {
         await Table.update(
           {
-            status: "BOOKED"
+            status: "BOOKED",
             // Do NOT set occupiedSince here - only when customer actually sits (OCCUPIED)
           },
           { where: { id: bookingData.tableId } }
@@ -185,7 +243,7 @@ exports.createBooking = async (req, res) => {
 
         req.io.emit("tableStatusUpdated", {
           tableId: bookingData.tableId,
-          status: "BOOKED"
+          status: "BOOKED",
         });
       }
       // If table is OCCUPIED, don't change status - new booking is queued as "next booking"
@@ -198,8 +256,38 @@ exports.createBooking = async (req, res) => {
     const response = {
       ...booking.toJSON(),
       autoScheduled: conflict && req.body.bookingType === "WALK_IN",
-      originalRequestTime: conflict ? req.body.bookingTime : null
+      originalRequestTime: conflict ? req.body.bookingTime : null,
     };
+
+    let mobile = bookingData.mobile;
+    mobile = normalizeIndianMobile(mobile);
+
+    if (
+      (process.env.ISUSE_WHATSAPP === "true" ||
+        process.env.ISUSE_WHATSAPP === true) &&
+      mobile &&
+      mobile.startsWith("+91")
+    ) {
+      await sendWhatsAppMessage({
+        organizationId: process.env.WHATSAPP_ORG_ID,
+        to: mobile,
+        messageContent: "Booking confirmation",
+        isTemplate: true,
+        templateId: process.env.WHATSAPP_BOOKING_TEMPLATE_ID,
+        templateParameters: {
+          name: bookingData.customerName,
+          restaurant: "Spice Garden",
+          time: bookingData.bookingTimeSlot,
+        },
+        campaignData: {
+          name: "booking-confirmation",
+          campaign_type: "immediate",
+        },
+        audienceData: {
+          name: bookingData.customerName,
+        },
+      });
+    }
 
     res.json(response);
   } catch (error) {
@@ -275,7 +363,6 @@ exports.getUpcomingBookingsForTable = async (req, res) => {
     const now = new Date();
     const bufferTime = new Date(now.getTime() - 60 * 60 * 1000);
 
-
     // Determine date range
     let startDate, endDate;
 
@@ -310,17 +397,14 @@ exports.getUpcomingBookingsForTable = async (req, res) => {
           ],
         },
         bookingTime: {
-          [Op.between]: [
-            isTodaysBooking ? bufferTime : startDate,
-            endDate,
-          ],
+          [Op.between]: [isTodaysBooking ? bufferTime : startDate, endDate],
         },
       },
       order: [
         ["bookingDate", "ASC"],
         ["bookingTimeSlot", "ASC"],
         ["bookingTime", "ASC"],
-      ]
+      ],
     });
 
     res.json(upcomingBookings);
@@ -328,7 +412,6 @@ exports.getUpcomingBookingsForTable = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 exports.cancelBooking = async (req, res) => {
   const booking = await Booking.findByPk(req.params.id);
@@ -340,12 +423,12 @@ exports.cancelBooking = async (req, res) => {
     where: {
       tableId: booking.tableId,
       status: {
-        [Op.in]: ["BOOKED", "CONFIRMED"]
+        [Op.in]: ["BOOKED", "CONFIRMED"],
       },
       id: {
-        [Op.ne]: booking.id // Exclude the booking we just cancelled
-      }
-    }
+        [Op.ne]: booking.id, // Exclude the booking we just cancelled
+      },
+    },
   });
 
   // Only mark table as AVAILABLE if there are NO other active bookings
@@ -353,14 +436,14 @@ exports.cancelBooking = async (req, res) => {
     await Table.update(
       {
         status: "AVAILABLE",
-        occupiedSince: null
+        occupiedSince: null,
       },
       { where: { id: booking.tableId } }
     );
 
     req.io.emit("tableStatusUpdated", {
       tableId: booking.tableId,
-      status: "AVAILABLE"
+      status: "AVAILABLE",
     });
   }
 
@@ -385,13 +468,13 @@ exports.completeBooking = async (req, res) => {
       where: {
         tableId: booking.tableId,
         status: {
-          [Op.in]: ["BOOKED", "CONFIRMED"]
+          [Op.in]: ["BOOKED", "CONFIRMED"],
         },
         id: {
-          [Op.ne]: booking.id // Exclude the booking we just completed
-        }
+          [Op.ne]: booking.id, // Exclude the booking we just completed
+        },
       },
-      order: [["bookingTime", "ASC"]] // Sort by time to get next booking first
+      order: [["bookingTime", "ASC"]], // Sort by time to get next booking first
     });
 
     // Only mark table as AVAILABLE if there are NO other active bookings
@@ -399,14 +482,14 @@ exports.completeBooking = async (req, res) => {
       await Table.update(
         {
           status: "AVAILABLE",
-          occupiedSince: null // Clear the timer
+          occupiedSince: null, // Clear the timer
         },
         { where: { id: booking.tableId } }
       );
 
       req.io.emit("tableStatusUpdated", {
         tableId: booking.tableId,
-        status: "AVAILABLE"
+        status: "AVAILABLE",
       });
     } else {
       // There are other bookings - keep table as BOOKED for next booking
@@ -414,14 +497,14 @@ exports.completeBooking = async (req, res) => {
       await Table.update(
         {
           status: "BOOKED", // Keep as BOOKED - next booking exists
-          occupiedSince: null // Clear timer (customer left)
+          occupiedSince: null, // Clear timer (customer left)
         },
         { where: { id: booking.tableId } }
       );
 
       req.io.emit("tableStatusUpdated", {
         tableId: booking.tableId,
-        status: "BOOKED"
+        status: "BOOKED",
       });
     }
 
@@ -459,20 +542,20 @@ exports.reassignTable = async (req, res) => {
     await booking.save();
 
     // Update old table to available
-    await Table.update(
-      { status: "AVAILABLE" },
-      { where: { id: oldTableId } }
-    );
+    await Table.update({ status: "AVAILABLE" }, { where: { id: oldTableId } });
 
     // Update new table to booked
-    await Table.update(
-      { status: "BOOKED" },
-      { where: { id: newTableId } }
-    );
+    await Table.update({ status: "BOOKED" }, { where: { id: newTableId } });
 
     // Emit real-time updates
-    req.io.emit("tableStatusUpdated", { tableId: oldTableId, status: "AVAILABLE" });
-    req.io.emit("tableStatusUpdated", { tableId: newTableId, status: "BOOKED" });
+    req.io.emit("tableStatusUpdated", {
+      tableId: oldTableId,
+      status: "AVAILABLE",
+    });
+    req.io.emit("tableStatusUpdated", {
+      tableId: newTableId,
+      status: "BOOKED",
+    });
     req.io.emit("bookingUpdated", booking);
     req.io.emit("dashboardUpdated");
 
@@ -501,13 +584,15 @@ exports.getAvailableTables = async (req, res) => {
     const allTables = await Table.findAll({
       where: {
         size: {
-          [Op.in]: getCompatibleSizes(tableSize)
-        }
+          [Op.in]: getCompatibleSizes(tableSize),
+        },
       },
-      include: [{
-        model: require("../models").Floor,
-        attributes: ["id", "floorNumber", "name"]
-      }]
+      include: [
+        {
+          model: require("../models").Floor,
+          attributes: ["id", "floorNumber", "name"],
+        },
+      ],
     });
 
     // Filter tables based on availability for the requested date/time
@@ -524,9 +609,9 @@ exports.getAvailableTables = async (req, res) => {
               bookingDate: bookingDate,
               bookingTimeSlot: bookingTimeSlot,
               status: {
-                [Op.in]: ["BOOKED", "CONFIRMED"]
-              }
-            }
+                [Op.in]: ["BOOKED", "CONFIRMED"],
+              },
+            },
           });
 
           if (!conflictingBooking) {
@@ -541,17 +626,25 @@ exports.getAvailableTables = async (req, res) => {
         const currentBooking = await Booking.findOne({
           where: {
             tableId: table.id,
-            status: "BOOKED"
+            status: "BOOKED",
           },
-          order: [["bookingTime", "DESC"]]
+          order: [["bookingTime", "DESC"]],
         });
 
-        if (currentBooking && !isBookingActive(currentBooking.bookingTime, currentBooking.bookingDate, currentBooking.bookingType)) {
+        if (
+          currentBooking &&
+          !isBookingActive(
+            currentBooking.bookingTime,
+            currentBooking.bookingDate,
+            currentBooking.bookingType
+          )
+        ) {
           // Booking is for future, table is actually available now
           if (bookingDate && bookingTimeSlot) {
             // Check if requested time conflicts with the future booking
-            const isSameBooking = currentBooking.bookingDate === bookingDate &&
-                                  currentBooking.bookingTimeSlot === bookingTimeSlot;
+            const isSameBooking =
+              currentBooking.bookingDate === bookingDate &&
+              currentBooking.bookingTimeSlot === bookingTimeSlot;
             if (!isSameBooking) {
               availableTables.push(table);
             }
@@ -565,7 +658,7 @@ exports.getAvailableTables = async (req, res) => {
 
     res.json({
       tables: availableTables,
-      recommendedSize: tableSize
+      recommendedSize: tableSize,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -575,9 +668,9 @@ exports.getAvailableTables = async (req, res) => {
 // Helper function to get compatible table sizes
 function getCompatibleSizes(requiredSize) {
   const sizeHierarchy = {
-    "SMALL": ["SMALL", "MEDIUM", "LARGE"],
-    "MEDIUM": ["MEDIUM", "LARGE"],
-    "LARGE": ["LARGE"]
+    SMALL: ["SMALL", "MEDIUM", "LARGE"],
+    MEDIUM: ["MEDIUM", "LARGE"],
+    LARGE: ["LARGE"],
   };
   return sizeHierarchy[requiredSize] || ["SMALL", "MEDIUM", "LARGE"];
 }
@@ -591,10 +684,10 @@ exports.getBookingsByDate = async (req, res) => {
       where: {
         bookingDate: date,
         status: {
-          [Op.in]: ["BOOKED", "CONFIRMED", "WAITING"]
-        }
+          [Op.in]: ["BOOKED", "CONFIRMED", "WAITING"],
+        },
       },
-      include: Table
+      include: Table,
     });
 
     res.json(bookings);
@@ -700,32 +793,31 @@ exports.syncTableStatuses = async (req, res) => {
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-    
+
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
-
 
     const bookings = await Booking.findAll({
       where: {
         status: { [Op.in]: ["BOOKED", "CONFIRMED"] },
-    
+
         [Op.or]: [
           // Pre-bookings (bookingDate exists)
           {
             bookingDate: {
-              [Op.between]: [startOfToday, endOfToday]
-            }
+              [Op.between]: [startOfToday, endOfToday],
+            },
           },
           // Walk-ins (bookingDate NULL)
           {
             bookingDate: null,
             bookingTime: {
-              [Op.between]: [startOfToday, endOfToday]
-            }
-          }
-        ]
+              [Op.between]: [startOfToday, endOfToday],
+            },
+          },
+        ],
       },
-      include: Table
+      include: Table,
     });
 
     // Group bookings by table
@@ -737,7 +829,7 @@ exports.syncTableStatuses = async (req, res) => {
       if (!tableMap[booking.tableId]) {
         tableMap[booking.tableId] = {
           table: booking.Table,
-          bookings: []
+          bookings: [],
         };
       }
       tableMap[booking.tableId].bookings.push(booking);
@@ -757,7 +849,9 @@ exports.syncTableStatuses = async (req, res) => {
         // ---- booking start
         let startTime;
         if (booking.bookingDate && booking.bookingTimeSlot) {
-          startTime = new Date(`${booking.bookingDate}T${booking.bookingTimeSlot}`);
+          startTime = new Date(
+            `${booking.bookingDate}T${booking.bookingTimeSlot}`
+          );
         } else {
           startTime = new Date(booking.bookingTime);
         }
@@ -771,7 +865,7 @@ exports.syncTableStatuses = async (req, res) => {
         const endTime = new Date(startTime.getTime() + duration * 60000);
 
         // ---- ACTIVE booking
-        if ((now >= startTime && now <= endTime)) {
+        if (now >= startTime && now <= endTime) {
           hasActiveBooking = true;
           break;
         }
@@ -791,7 +885,8 @@ exports.syncTableStatuses = async (req, res) => {
         nextStatus = "BOOKED";
       } else if (
         nearestUpcomingStart &&
-        nearestUpcomingStart <= new Date(now.getTime() + PRE_HOLD_MINUTES * 60000)
+        nearestUpcomingStart <=
+          new Date(now.getTime() + PRE_HOLD_MINUTES * 60000)
       ) {
         nextStatus = "BOOKED";
       }
@@ -800,7 +895,8 @@ exports.syncTableStatuses = async (req, res) => {
         await Table.update(
           {
             status: nextStatus,
-            occupiedSince: nextStatus === "AVAILABLE" ? null : table.occupiedSince,
+            occupiedSince:
+              nextStatus === "AVAILABLE" ? null : table.occupiedSince,
             availableInMinutes:
               nextStatus === "AVAILABLE"
                 ? Math.max(
@@ -809,7 +905,7 @@ exports.syncTableStatuses = async (req, res) => {
                       ? Math.floor((nearestUpcomingStart - now) / 60000)
                       : null
                   )
-                : null
+                : null,
           },
           { where: { id: tableId } }
         );
@@ -819,7 +915,7 @@ exports.syncTableStatuses = async (req, res) => {
         if (req.io) {
           req.io.emit("tableStatusUpdated", {
             tableId,
-            status: nextStatus
+            status: nextStatus,
           });
         }
       }
@@ -831,13 +927,12 @@ exports.syncTableStatuses = async (req, res) => {
 
     res.json({
       message: "Table statuses synced with 45-minute availability rule",
-      updatedCount
+      updatedCount,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 // Override booking - Move existing booking to waiting list and create new booking
 exports.overrideBooking = async (req, res) => {
@@ -862,7 +957,7 @@ exports.overrideBooking = async (req, res) => {
       bookingDate: existingBooking.bookingDate,
       bookingTimeSlot: existingBooking.bookingTimeSlot,
       priority: existingBooking.priority || 0,
-      status: "WAITING"
+      status: "WAITING",
     });
 
     // Cancel the existing booking
@@ -873,7 +968,11 @@ exports.overrideBooking = async (req, res) => {
     const newBooking = await Booking.create(req.body);
 
     // Set table status if booking is active AND table is not OCCUPIED
-    const shouldBeBooked = isBookingActive(req.body.bookingTime, req.body.bookingDate, req.body.bookingType);
+    const shouldBeBooked = isBookingActive(
+      req.body.bookingTime,
+      req.body.bookingDate,
+      req.body.bookingType
+    );
     if (shouldBeBooked) {
       // Get current table status
       const table = await Table.findByPk(req.body.tableId);
@@ -882,7 +981,7 @@ exports.overrideBooking = async (req, res) => {
       if (table && table.status === "AVAILABLE") {
         await Table.update(
           {
-            status: "BOOKED"
+            status: "BOOKED",
             // Do NOT set occupiedSince - only when customer actually sits (OCCUPIED)
           },
           { where: { id: req.body.tableId } }
@@ -890,7 +989,7 @@ exports.overrideBooking = async (req, res) => {
 
         req.io.emit("tableStatusUpdated", {
           tableId: req.body.tableId,
-          status: "BOOKED"
+          status: "BOOKED",
         });
       }
       // If table is OCCUPIED, don't change status - new booking is queued
@@ -899,7 +998,7 @@ exports.overrideBooking = async (req, res) => {
     // Emit events
     req.io.emit("bookingOverridden", {
       cancelled: existingBooking,
-      new: newBooking
+      new: newBooking,
     });
     req.io.emit("waitingListUpdated");
     req.io.emit("dashboardUpdated");
@@ -909,8 +1008,8 @@ exports.overrideBooking = async (req, res) => {
       newBooking,
       movedToWaitingList: {
         customerName: existingBooking.customerName,
-        mobile: existingBooking.mobile
-      }
+        mobile: existingBooking.mobile,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -937,9 +1036,9 @@ exports.updateBooking = async (req, res) => {
     // Update booking fields
     for (const key in req.body) {
       if (key === "id") continue;
-      if(key === "bookingTime") continue;
-      if(key === "bookingDate") continue;
-      
+      if (key === "bookingTime") continue;
+      if (key === "bookingDate") continue;
+
       booking[key] = req.body[key];
     }
 
