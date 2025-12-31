@@ -226,10 +226,9 @@ exports.createBooking = async (req, res) => {
       bookingData.bookingType
     );
    
-    let table;
     if (shouldBeBooked) {
       // Get current table status
-       table = await Table.findByPk(bookingData.tableId);
+     const table = await Table.findByPk(bookingData.tableId);
 
       // Only change to BOOKED if table is AVAILABLE (not if OCCUPIED)
       // If table is OCCUPIED, keep it OCCUPIED (current customer still sitting)
@@ -262,6 +261,8 @@ exports.createBooking = async (req, res) => {
 
     let mobile = bookingData.mobile;
     mobile = normalizeIndianMobile(mobile);
+
+    const table = await Table.findByPk(bookingData.tableId);
 
     if (
       (process.env.ISUSE_WHATSAPP == "true" ||
