@@ -225,10 +225,11 @@ exports.createBooking = async (req, res) => {
       bookingData.bookingDate,
       bookingData.bookingType
     );
-
+   
+    let table;
     if (shouldBeBooked) {
       // Get current table status
-      const table = await Table.findByPk(bookingData.tableId);
+       table = await Table.findByPk(bookingData.tableId);
 
       // Only change to BOOKED if table is AVAILABLE (not if OCCUPIED)
       // If table is OCCUPIED, keep it OCCUPIED (current customer still sitting)
@@ -263,8 +264,8 @@ exports.createBooking = async (req, res) => {
     mobile = normalizeIndianMobile(mobile);
 
     if (
-      (process.env.ISUSE_WHATSAPP === "true" ||
-        process.env.ISUSE_WHATSAPP === true) &&
+      (process.env.ISUSE_WHATSAPP == "true" ||
+        process.env.ISUSE_WHATSAPP == true) &&
       mobile &&
       mobile.startsWith("+91")
     ) {
@@ -278,6 +279,8 @@ exports.createBooking = async (req, res) => {
           name: bookingData.customerName,
           restaurant: "Spice Garden",
           time: bookingData.bookingTimeSlot,
+          date: bookingData.bookingDate,
+          table: table.tableNumber,
         },
         campaignData: {
           name: "booking-confirmation",
@@ -285,6 +288,7 @@ exports.createBooking = async (req, res) => {
         },
         audienceData: {
           name: bookingData.customerName,
+          mobile: mobile,
         },
       });
     }
